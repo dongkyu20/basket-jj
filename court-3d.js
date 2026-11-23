@@ -73,7 +73,7 @@ function setupCourt3D(svg, prefix) {
     show3D(false);
   });
 
-  button3D.addEventListener('click', async () => {
+  async function open3D() {
     if (selected) return;
     selected = true;
     const currentRequest = ++request;
@@ -105,7 +105,9 @@ function setupCourt3D(svg, prefix) {
     } finally {
       if (request === currentRequest) button3D.removeAttribute('aria-busy');
     }
-  });
+  }
+
+  button3D.addEventListener('click', open3D);
 
   angles.addEventListener('click', event => {
     const button = event.target.closest('button[data-angle]');
@@ -128,6 +130,7 @@ function setupCourt3D(svg, prefix) {
     setActive(value) {
       active = value;
       view?.setVisible(selected && !panel.hidden && active);
+      if (active && request === 0) open3D();
     }
   };
 }
