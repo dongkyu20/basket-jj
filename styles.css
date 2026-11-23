@@ -3,7 +3,7 @@
    PICTURE: 메이플 하프코트, 흰 원 공격수 · 색 원 수비수 · 시선 부채꼴과 보조 시선 점선
    COLOUR and TYPE: 크림/딥 잉크 바탕, 메이플 코트, 코랄 · 골드 · 스카이, Black Han Sans + Noto Sans KR
    LAYOUT: 수비 탭 → 공격 세트 → 볼 위치, 코트 왼쪽 · 설명 카드 오른쪽, 아래 원칙 */
-:root{--court-playback-speed:.8;color-scheme:light dark;--bg:light-dark(#f3efe6,#11151c);--ink:light-dark(#141821,#eef0f3);--mute:light-dark(#5b6170,#9aa3b2);--card:light-dark(#ffffff,#1a2029);--line:light-dark(#dcd6c8,#2a323e);--top:#ff5a4e;--mid:#f2b621;--bot:#3fa7f5;--ball:#f07a1c}
+:root{--court-playback-speed:.8;--court-player-speed:.8;--court-trailing-defense-speed:.8;--court-defense-arrival-gap-ms:190;color-scheme:light dark;--bg:light-dark(#f3efe6,#11151c);--ink:light-dark(#141821,#eef0f3);--mute:light-dark(#5b6170,#9aa3b2);--card:light-dark(#ffffff,#1a2029);--line:light-dark(#dcd6c8,#2a323e);--top:#ff5a4e;--mid:#f2b621;--bot:#3fa7f5;--ball:#f07a1c}
 :root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
 *{box-sizing:border-box;min-width:0}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 "Noto Sans KR",system-ui,sans-serif;overflow-x:clip}
@@ -109,8 +109,21 @@ details summary{cursor:pointer;font-weight:700;min-height:32px}
 .scrrow{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin-bottom:6px}.scrrow span{color:#eef0f3;font-size:14px;font-weight:700}
 .scrrow button{min-height:38px;border-radius:10px;background:#1d2430;color:#c9d1dc;border-color:#2f3845;font-size:13.5px}
 .lagnote{color:var(--ball);font-weight:700}
-.mv{transition:transform calc(550ms / var(--court-playback-speed)) cubic-bezier(.3,.8,.3,1)}
-@media(prefers-reduced-motion:reduce){.mv{transition:none}}
+.mv{transition:transform calc(550ms / var(--court-playback-speed) / var(--piece-speed, 1)) cubic-bezier(.3,.8,.3,1)}
+.mv.at,.mv.pl{--piece-speed:var(--court-player-speed)}
+[data-court-ball-action] .mv.pl{
+  --piece-speed:calc(var(--court-player-speed) * var(--court-trailing-defense-speed));
+  --ball-move-time:calc(550ms / var(--court-playback-speed));
+  transition-duration:max(
+    calc(var(--ball-move-time) / var(--piece-speed)),
+    calc(max(var(--ball-move-time), var(--court-drive-time, 0ms)) + var(--court-defense-arrival-gap-ms) * 1ms / var(--court-playback-speed))
+  );
+  transition-timing-function:cubic-bezier(.60,0,.78,1);
+}
+[data-court-ball-action="dribble"]{
+  --court-drive-time:calc(550ms / var(--court-playback-speed) / var(--court-player-speed));
+}
+@media(prefers-reduced-motion:reduce){.mv,[data-court-ball-action] .mv.pl{transition:none}}
 @media(max-width:600px){.lede{font-size:14.5px}#tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}#tabs button{padding:0 4px;font-size:17px;border-radius:12px}#offs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}#offs button{padding:4px 6px;font-size:13.5px;border-radius:12px;line-height:1.25}#spots{grid-template-columns:repeat(4,minmax(0,1fr))}#spots button{font-size:13px;min-height:42px}.court{padding:6px;border-radius:14px}.lbl{margin-top:10px}}
 @media(max-width:600px){table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px}.stack td{display:flow-root;border:0;padding:3px 12px;padding-inline-start:8em;text-align:start}.stack td::before{content:attr(data-l);float:inline-start;width:7.5em;margin-inline-start:-8em;white-space:normal;font:700 12px "Noto Sans KR";color:var(--mute)}.stack td:empty{display:none}}
 
@@ -130,7 +143,14 @@ details summary{cursor:pointer;font-weight:700;min-height:32px}
 .court-view-controls { padding: 0 0 8px; }
 .court-angle-controls { margin-inline-start: auto; }
 .court-angle-controls[hidden], .court .court-view-hidden { display: none; }
-.court-view-controls button {
+.court-follow-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #edf2f8;
+  font-size: 13px;
+}
+.court-view-controls button, .court-follow-control select {
   min-height: 44px;
   padding-inline: 12px;
   border-color: #455362;
@@ -144,6 +164,39 @@ details summary{cursor:pointer;font-weight:700;min-height:32px}
   background: #edf2f8;
   color: #19232e;
 }
+.court-follow-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: #202a36;
+  color: #edf2f8;
+  font-size: 13px;
+}
+.court-follow-settings[hidden] { display: none; }
+.court-follow-settings label {
+  display: flex;
+  flex: 1 1 145px;
+  align-items: center;
+  gap: 6px;
+}
+.court-follow-settings input {
+  flex: 1 1 72px;
+  width: 72px;
+  min-height: 44px;
+  accent-color: var(--ball);
+}
+.court-follow-settings button {
+  min-height: 44px;
+  padding-inline: 10px;
+  border-color: #455362;
+  border-radius: 8px;
+  background: #111820;
+  color: #edf2f8;
+}
 .court-view-status { color: #edf2f8; margin: 0 2px 8px; font-size: 13px; }
 .court-view-status:empty { margin: 0; }
 .court-3d {
@@ -154,3 +207,6 @@ details summary{cursor:pointer;font-weight:700;min-height:32px}
   background: #111820;
 }
 .court-3d canvas { display: block; width: 100%; height: 100%; }
+.court-3d canvas.is-following { cursor: grab; }
+.court-3d canvas.is-player-hovered { cursor: pointer; }
+.court-3d canvas.is-following:active { cursor: grabbing; }

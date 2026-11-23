@@ -19,6 +19,43 @@
 <script src="court-3d.js"></script>
 </head>
 <body>
+<template id="court3dControls">
+  <div class="court-view-controls" role="group" aria-label="작전판 보기">
+    <button type="button" id="2d" aria-pressed="true">2D</button>
+    <button type="button" id="3d" aria-pressed="false">3D</button>
+    <div id="3dAngles" class="court-angle-controls" role="group" aria-label="카메라 시점" hidden>
+      <button type="button" data-angle="angled">사선뷰</button>
+      <button type="button" data-angle="top">탑뷰</button>
+      <label class="court-follow-control">
+        <span>선수 시점</span>
+        <select id="3dFollow">
+          <option value="">선수 선택</option>
+          <optgroup label="공격">
+            <option value="a1">공격 1번</option>
+            <option value="a2">공격 2번</option>
+            <option value="a3">공격 3번</option>
+            <option value="a4">공격 4번</option>
+            <option value="a5">공격 5번</option>
+          </optgroup>
+          <optgroup label="수비">
+            <option value="d1">수비 1번</option>
+            <option value="d2">수비 2번</option>
+            <option value="d3">수비 3번</option>
+            <option value="d4">수비 4번</option>
+            <option value="d5">수비 5번</option>
+          </optgroup>
+        </select>
+      </label>
+    </div>
+  </div>
+  <div id="FollowSettings" class="court-follow-settings" role="group" aria-label="선수 시점 시작 위치" hidden>
+    <label>카메라 거리 <input id="FollowDistance" type="range" min="60" max="180" step="1"></label>
+    <label>카메라 높이 <input id="FollowHeight" type="range" min="16" max="90" step="1"></label>
+    <button type="button" id="FollowReset">기본값</button>
+  </div>
+  <p class="court-view-status" id="3dStatus" role="status"></p>
+  <div id="Court3d" class="court-3d" hidden></div>
+</template>
 <section class="band"><div class="wrap">
   <h1>농구 공격 및 수비 전술판</h1>
   <p class="lede">수비 전술판에선 수비 위치와 시선을, 공격 패턴에선 수비별 기본 공략을 단계별로 보고, 내 패턴 만들기에선 우리 팀만의 패턴을 직접 그려서 저장합니다. 흰 원은 공격, 색 원은 수비, 부채꼴은 주시선, 점선은 보조시선입니다.</p>
@@ -47,17 +84,7 @@
     <div class="lbl">공략 패턴</div><div class="row" id="plays"></div>
     <div class="grid">
       <div class="court">
-        <div class="court-view-controls" role="group" aria-label="작전판 보기">
-          <button type="button" id="off2d" aria-pressed="true" aria-controls="svg2">2D</button>
-          <button type="button" id="off3d" aria-pressed="false" aria-controls="offCourt3d">3D</button>
-          <div id="off3dAngles" class="court-angle-controls" role="group" aria-label="카메라 시점" hidden>
-            <button type="button" data-angle="angled">사선뷰</button>
-            <button type="button" data-angle="top">탑뷰</button>
-          </div>
-        </div>
-        <p class="court-view-status" id="off3dStatus" role="status"></p>
         <svg id="svg2" viewBox="0 0 500 360" role="img" aria-label="공격 패턴 단계별 그림"></svg>
-        <div id="offCourt3d" class="court-3d" hidden></div>
         <div class="legend" id="legend2"></div>
         <div class="stepbar"><button id="prev">이전</button><span id="stepN"></span><button id="next">다음</button><button id="play">자동 재생</button></div>
         <label class="drv"><input type="checkbox" id="oLag" checked>재생할 때 수비는 한 박자 늦게 따라가기</label>
@@ -471,7 +498,8 @@ for(const k in PL)PL[k].forEach(pl=>{pl.s[pl.s.length-1].shot=true});
 
 let OP=null,OLAG=false,oLagT=null,VIEW='def',DF='23',OF='b1',S='top',SEL=0,ACE=2,OD='32',PI=0,ST=0,timer=null;
 const svg=document.getElementById('svg'),svg2=document.getElementById('svg2');
-const attackCourt3D=setupAttackCourt3D(svg2);
+const defenseCourt3D=setupCourt3D(svg,'def');
+const attackCourt3D=setupCourt3D(svg2,'off');
 const $=id=>document.getElementById(id);
 const R=x=>Math.round(x*10)/10;
 const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
@@ -555,12 +583,28 @@ function defState(){
     holder=pool.reduce((m,a)=>dist([a.x,a.y],ball)<dist([m.x,m.y],ball)?a:m);holder.x=ball[0];holder.y=ball[1]}
   return {off,A,holder,...compute(DF,A,holder,ACE)};
 }
-function drawDef(){
+function courtPlayers({attack,defense,scheme,ace,selected,screens=[]}){
+  const screenByPlayer=new Map(screens.map(s=>[+s.id,[s.ux,s.uy]]));
+  return [
+    ...attack.map(a=>({key:'a'+a.id,number:a.id,x:a.x,z:a.y,screen:screenByPlayer.get(a.id)})),
+    ...Object.entries(defense).map(([id,p])=>{
+      const matchup=scheme==='man'?id:scheme==='box'&&id==='5'?ace:null;
+      return {
+        key:'d'+id,number:id,x:p.x,z:p.y,group:p.g,gaze:[p.ex,p.ey],screened:p.screened,selected:+id===selected,
+        guard:matchup?'man':'zone',matchup:matchup?'a'+matchup:null
+      };
+    })
+  ];
+}
+function drawDef(anim){
   const {off,A,holder,P,f,base,ball}=defState();
   let under='';
   if($('rt').checked)under+=off.rt.map(r=>arrow(...r)).join('');
   if(holder.ox!=holder.x||holder.oy!=holder.y)under+=`<circle cx="${holder.ox}" cy="${holder.oy}" r="12" fill="none" stroke="#141821" stroke-width="1.5" stroke-dasharray="3 3" opacity=".6"/><g opacity=".5">${arrow('cut',holder.ox,holder.oy,holder.x,holder.y,1.5)}</g>`;
   svg.innerHTML=picture({A,holder,P,f,ball,weak:$('weak').checked,spots:true,under,ace:DF=='box'?ACE:0,dimId:SEL});
+  defenseCourt3D.update({
+    pattern:svg,step:[DF,OF,S,ACE].join(':'),holder:holder.id,ball,players:courtPlayers({attack:A,defense:P,scheme:DF,ace:ACE,selected:+SEL})
+  },anim);
   const spName=SPOTS.find(s=>s[0]==S)[1];
   $('nTitle').textContent=`${f.name} vs ${off.name} · 볼: ${spName}`;
   $('nDef').textContent=f.desc;$('nSpot').textContent=SNOTE[base];
@@ -595,7 +639,7 @@ function drawPlay(pl,k,DK,edit,lagP){
     for(const id of [1,2,3,4,5]){const a=pm[id],b=m[id];if(dist(a,b)>2){under+=`<circle cx="${R(a[0])}" cy="${R(a[1])}" r="12" fill="none" stroke="#141821" stroke-width="1.5" stroke-dasharray="3 3" opacity=".55"/>`+arrow(scrIds.includes(id)?'screen':dr.includes(id)?'drive':'cut',a[0],a[1],b[0],b[1])}}
     if(ph!=st.h){const a=m[ph],b=m[st.h];under+=arrow('pass',a[0],a[1],b[0],b[1])}}
   if(st.shot)under+=shotArc(m[st.h]);
-  return {html:picture({A,holder,P:lagP||P2,f,ball,weak:true,spots:false,under,over,ace,edit}),P:P2,f,A,ball};
+  return {html:picture({A,holder,P:lagP||P2,f,ball,weak:true,spots:false,under,over,ace,edit}),P:P2,f,A,ball,scr};
 }
 function drawOff(anim){
   const list=plays(OD);if(PI>=list.length)PI=0;const pl=list[PI];if(ST>=pl.s.length)ST=0;const st=pl.s[ST];
@@ -603,12 +647,7 @@ function drawOff(anim){
   const r=drawPlay(pl,ST,OD,false,lag?OP:null);svg2.innerHTML=r.html;if(!lag)OP=r.P;
   attackCourt3D.update({
     pattern:pl, step:ST, holder:st.h, ball:r.ball, shot:st.shot, dribble:(st.d||[]).includes(st.h),
-    players:[
-      ...r.A.map(a=>({key:'a'+a.id,number:a.id,x:a.x,z:a.y})),
-      ...Object.entries(lag?OP:r.P).map(([id,p])=>({
-        key:'d'+id,number:id,x:p.x,z:p.y,group:p.g,gaze:[p.ex,p.ey],screened:p.screened
-      }))
-    ]
+    players:courtPlayers({attack:r.A,defense:lag?OP:r.P,scheme:OD,ace:pl.ace||2,screens:r.scr})
   },anim);
   $('legend2').innerHTML=legendHTML(r.P,r.f,lag?'<span class="lagnote">수비가 따라가는 중…</span>':'<span>점선 = 패스 · 실선 = 이동 · 지그재그 = 드리블 돌파 · T자 = 스크린 (빨간 점선 = 걸린 수비) · 주황 곡선 = 슛</span>').html;
   $('stepN').textContent=`${ST+1} / ${pl.s.length}`;
@@ -686,7 +725,11 @@ function drawEditMeta(){
   document.querySelectorAll('#eace button').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.a==(E.ace||2)));
   $('ebase').innerHTML=PL[E.def].map((p,i)=>`<button data-b="${i}">${esc(p.n)}</button>`).join('');
 }
-function drawEdit(){
+function drawEdit(anim){
+  if(anim!==undefined){
+    const step=E.s[EI];
+    trackCourtBallAction(svg3,{pattern:E,step:EI,holder:step.h,dribble:(step.d||[]).includes(step.h)},anim);
+  }
   const lag=LAGNOW&&EP&&Object.keys(EP).length==Object.keys(E.def=='man'||E.def=='box'?{1:1,2:1,3:1,4:1,5:1}:D[E.def].roles).length;LAGNOW=false;
   const r=drawPlay(E,EI,E.def,true,lag?EP:null);svg3.innerHTML=r.html+(PREV&&dist(PREV.a,PREV.b)>8?`<g class="court-overlay" opacity=".85"><line x1="${R(PREV.a[0])}" y1="${R(PREV.a[1])}" x2="${R(PREV.b[0])}" y2="${R(PREV.b[1])}" stroke="#141821" stroke-width="2.5" stroke-dasharray="2 4"/>${tbar(dist(PREV.a,PREV.b)>=30?[PREV.b[0]-unit(PREV.a,PREV.b)[0]*22,PREV.b[1]-unit(PREV.a,PREV.b)[1]*22]:PREV.a,unit(PREV.a,PREV.b))}</g>`:'');if(!lag)EP=r.P;
   $('legend3').innerHTML=legendHTML(r.P,r.f,lag?'<span class="lagnote">수비가 따라가는 중…</span>':(SCR?'<span class="lagnote">스크린 그리기: 스크린 걸 공격수를 누른 채 수비수 쪽으로 끌기</span>':'<span>공격수 끌기 = 이동 · 탭 = 공 주기</span>')).html;
@@ -707,7 +750,7 @@ svg3.addEventListener('pointerup',endDrag);svg3.addEventListener('pointercancel'
 /* ---------- 공통 ---------- */
 function render(anim){
   const el=VIEW=='def'?svg:VIEW=='off'?svg2:svg3,old={};el.querySelectorAll('.mv').forEach(g=>old[g.dataset.k]=g.style.transform);
-  VIEW=='def'?drawDef():VIEW=='off'?drawOff(anim):drawEdit();
+  VIEW=='def'?drawDef(anim):VIEW=='off'?drawOff(anim):drawEdit(anim);
   if(anim)el.querySelectorAll('.mv').forEach(g=>{const to=g.style.transform,fr=old[g.dataset.k];if(!fr||fr==to)return;g.style.transition='none';g.style.transform=fr;requestAnimationFrame(()=>requestAnimationFrame(()=>{g.style.transition='';g.style.transform=to}))});
   document.querySelectorAll('#cat button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.c==VIEW));
   document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.f==DF));
@@ -715,6 +758,7 @@ function render(anim){
   document.querySelectorAll('#offs button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.o==OF));
   document.querySelectorAll('#spots button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.k==S));
   $('defView').hidden=VIEW!='def';$('offView').hidden=VIEW!='off';$('makeView').hidden=VIEW!='make';
+  defenseCourt3D.setActive(VIEW=='def');
   attackCourt3D.setActive(VIEW=='off');
 }
 const ORDER=['man','23','212','32','131','box'];
